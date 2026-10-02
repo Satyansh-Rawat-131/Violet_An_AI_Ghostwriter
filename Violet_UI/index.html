@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Violet · AI Ghostwriter</title>
+<style>
+  :root{--bg:#0f0b1a;--panel:#181226;--line:#2c2342;--text:#ece8f6;--mute:#9a90b5;--v:#9b6dff;--v2:#6d3fd6}
+  *{box-sizing:border-box}
+  body{margin:0;height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--text);font:15px/1.55 system-ui,sans-serif}
+  header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line)}
+  header h1{font-size:18px;margin:0;color:var(--v)} header span{color:var(--mute);font-size:13px}
+  header button{margin-left:auto}
+  main{flex:1;display:grid;grid-template-columns:1fr 1fr;min-height:0}
+  section{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line)}
+  section:last-child{border:0}
+  .title{padding:10px 18px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute);display:flex;gap:8px;align-items:center}
+  #msgs,#doc{flex:1;overflow:auto;padding:0 18px 18px;white-space:pre-wrap}
+  .m{max-width:88%;padding:10px 14px;border-radius:14px;margin:8px 0}
+  .u{background:var(--v2);margin-left:auto}
+  .a{background:var(--panel);border:1px solid var(--line)}
+  .err{color:#ff8a8a}
+  #doc{background:var(--panel);margin:0 18px 18px;border:1px solid var(--line);border-radius:12px;padding:18px;font-family:Georgia,serif}
+  #doc:empty::before{content:"Your document will appear here as Violet writes it.";color:var(--mute);font-family:system-ui}
+  form{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--line)}
+  textarea{flex:1;resize:none;height:48px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit}
+  textarea:focus{outline:1px solid var(--v)}
+  button{background:var(--v);color:#fff;border:0;border-radius:10px;padding:0 16px;font:inherit;cursor:pointer;height:36px}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--mute)}
+  form button{height:48px} button:disabled{opacity:.5;cursor:wait}
+  @media(max-width:800px){main{grid-template-columns:1fr;grid-template-rows:1fr 1fr}section{border-right:0;border-bottom:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Violet</h1><span>AI Ghostwriter</span>
+  <button class="ghost" id="reset">New document</button>
+</header>
+<main>
+  <section>
+    <div class="title">Chat</div>
+    <div id="msgs"></div>
+    <form id="f">
+      <textarea id="in" placeholder="e.g. Write a short email asking my manager for Friday off…"></textarea>
+      <button id="send">Send</button>
+    </form>
+  </section>
+  <section>
+    <div class="title">Document <button class="ghost" id="copy" style="margin-left:auto;height:26px;font-size:12px">Copy</button>
+      <button class="ghost" id="dl" style="height:26px;font-size:12px">Download</button></div>
+    <div id="doc"></div>
+  </section>
+</main>
+<script>
+const API = location.protocol === "file:" ? "http://localhost:8000" : "";
+const $ = id => document.getElementById(id);
+let sid = localStorage.getItem("violet_sid");
+
+function add(text, cls){
+  const d = document.createElement("div");
+  d.className = "m " + cls; d.textContent = text;
+  $("msgs").appendChild(d); $("msgs").scrollTop = 1e9; return d;
+}
+add("Hi, I'm Violet. Tell me what you'd like to write, or paste a draft to edit.", "a");
+
+async function send(text){
+  add(text, "u");
+  const wait = add("Violet is writing…", "a");
+  $("send").disabled = true;
+  try{
+    const r = await fetch(API + "/chat", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({message:text, session_id:sid})
+    });
+    if(!r.ok) throw new Error("Server returned " + r.status);
+    const d = await r.json();
+    sid = d.session_id; localStorage.setItem("violet_sid", sid);
+    wait.textContent = d.reply || "Done. Check the document on the right.";
+    if(d.document) $("doc").textContent = d.document;
+  }catch(e){
+    wait.textContent = "Couldn't reach Violet: " + e.message; wait.classList.add("err");
+  }finally{ $("send").disabled = false; $("in").focus(); }
+}
+
+$("f").onsubmit = e => {
+  e.preventDefault();
+  const t = $("in").value.trim(); if(!t) return;
+  $("in").value = ""; send(t);
+};
+$("in").onkeydown = e => { if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); $("f").requestSubmit(); } };
+$("copy").onclick = () => navigator.clipboard.writeText($("doc").textContent);
+$("dl").onclick = () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([$("doc").textContent], {type:"text/plain"}));
+  a.download = "violet-document.txt"; a.click();
+};
+$("reset").onclick = async () => {
+  if(sid) fetch(API + "/reset/" + sid, {method:"POST"});
+  sid = null; localStorage.removeItem("violet_sid");
+  $("msgs").innerHTML = ""; $("doc").textContent = "";
+  add("Fresh start. What are we writing?", "a");
+};
+</script>
+</body>
+</html>
